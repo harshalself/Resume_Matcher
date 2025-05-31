@@ -4,6 +4,7 @@ import os
 import tempfile
 import requests
 from db import get_job_application_resume, download_resume_from_storage, get_job_description
+from resume_matcher import ResumeMatcher
 import json
 import uuid
 
@@ -15,6 +16,9 @@ TEMP_DIR = os.path.join(os.path.dirname(__file__), 'temp_resumes')
 TEMP_JD_DIR = os.path.join(os.path.dirname(__file__), 'temp_jd')
 os.makedirs(TEMP_DIR, exist_ok=True)
 os.makedirs(TEMP_JD_DIR, exist_ok=True)
+
+# Initialize ResumeMatcher
+resume_matcher = ResumeMatcher()
 
 @app.route('/api/resume/download', methods=['POST'])
 def download_and_store_resume():
@@ -196,6 +200,46 @@ def download_and_store_job_description():
 
     except Exception as e:
         print(f"Error in download_and_store_job_description: {str(e)}")
+        print(f"Error type: {type(e)}")
+        return jsonify({
+            "error": str(e),
+            "status": "error"
+        }), 500
+
+@app.route('/api/match-resume', methods=['POST'])
+def match_resume():
+    try:
+        data = request.json
+        resume_path = data.get('resumePath')
+        jd_path = data.get('jdPath')
+
+        if not all([resume_path, jd_path]):
+            return jsonify({
+                "error": "Missing required parameters",
+                "status": "error"
+            }), 400
+
+        print(f"\n=== Starting resume matching ===")
+        print(f"Resume path: {resume_path}")
+        print(f"Job description path: {jd_path}")
+
+        # Match resume against job description
+        result = resume_matcher.match_resume_to_job(resume_path, jd_path)
+
+        if not result['success']:
+            return jsonify({
+                "error": result.get('error', 'Failed to match resume'),
+                "status": "error"
+            }), 500
+
+        return jsonify({
+            "success": True,
+            "message": "Resume matched successfully",
+            "result": result
+        })
+
+    except Exception as e:
+        print(f"Error in match_resume: {str(e)}")
         print(f"Error type: {type(e)}")
         return jsonify({
             "error": str(e),
