@@ -10,6 +10,9 @@ const JobsList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [applyingJobs, setApplyingJobs] = useState<Set<string>>(new Set());
   const [appliedJobs, setAppliedJobs] = useState<Set<string>>(new Set());
+  const [matchPercentages, setMatchPercentages] = useState<
+    Record<string, number>
+  >({});
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -52,13 +55,22 @@ const JobsList: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from("job_applications")
-        .select("job_id")
+        .select("job_id, id, match_percentage")
         .eq("candidate_id", user?.id);
 
       if (error) throw error;
 
       const appliedJobIds = new Set(data?.map((app) => app.job_id) || []);
       setAppliedJobs(appliedJobIds);
+
+      // Store match percentages
+      const percentages: Record<string, number> = {};
+      data?.forEach((app) => {
+        if (app.match_percentage) {
+          percentages[app.job_id] = app.match_percentage;
+        }
+      });
+      setMatchPercentages(percentages);
     } catch (error: any) {
       console.error("Error fetching applied jobs:", error);
     }
@@ -260,6 +272,37 @@ const JobsList: React.FC = () => {
     }
   };
 
+  const updateMatchPercentage = async (
+    applicationId: string,
+    matchPercentage: number
+  ) => {
+    try {
+      const response = await fetch(
+        "http://localhost:5000/api/update-match-percentage",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            applicationId,
+            matchPercentage,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to update match percentage");
+      }
+
+      const result = await response.json();
+      return result.success;
+    } catch (error: any) {
+      console.error("Error updating match percentage:", error);
+      return false;
+    }
+  };
+
   if (loading) {
     return (
       <div className="bg-white rounded-lg shadow-lg p-8">
@@ -295,9 +338,16 @@ const JobsList: React.FC = () => {
                       {job.company}
                     </div>
                   </div>
-                  <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
-                    {job.is_active ? "Active" : "Inactive"}
-                  </span>
+                  <div className="flex flex-col items-end gap-2">
+                    <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
+                      {job.is_active ? "Active" : "Inactive"}
+                    </span>
+                    {matchPercentages[job.id] && (
+                      <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
+                        Match: {matchPercentages[job.id].toFixed(1)}%
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid md:grid-cols-3 gap-4 mb-4">

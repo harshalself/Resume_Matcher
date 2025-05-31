@@ -3,7 +3,7 @@ from flask_cors import CORS
 import os
 import tempfile
 import requests
-from db import get_job_application_resume, download_resume_from_storage, get_job_description
+from db import get_job_application_resume, download_resume_from_storage, get_job_description, update_match_percentage
 from resume_matcher import ResumeMatcher
 import json
 import uuid
@@ -212,8 +212,9 @@ def match_resume():
         data = request.json
         resume_path = data.get('resumePath')
         jd_path = data.get('jdPath')
+        application_id = data.get('applicationId')
 
-        if not all([resume_path, jd_path]):
+        if not all([resume_path, jd_path, application_id]):
             return jsonify({
                 "error": "Missing required parameters",
                 "status": "error"
@@ -222,6 +223,7 @@ def match_resume():
         print(f"\n=== Starting resume matching ===")
         print(f"Resume path: {resume_path}")
         print(f"Job description path: {jd_path}")
+        print(f"Application ID: {application_id}")
 
         # Match resume against job description
         result = resume_matcher.match_resume_to_job(resume_path, jd_path)
@@ -232,14 +234,93 @@ def match_resume():
                 "status": "error"
             }), 500
 
-        return jsonify({
-            "success": True,
-            "message": "Resume matched successfully",
-            "result": result
-        })
+        # Extract match percentage from the result
+        try:
+            # Clean up triple-backtick wrapper if present
+            raw_data = result['matching_result']['data']
+            cleaned_str = raw_data.strip().strip('`')
+
+            if cleaned_str.startswith("json"):
+                cleaned_str = cleaned_str[4:].strip()
+
+            match_result = json.loads(cleaned_str)
+            match_percentage = float(match_result.get("overall_score", 0))
+
+            print(f"Match result type: {type(match_result)}")
+            print(f"Match Percentage: {match_percentage}")
+
+            # Update match percentage in database
+            print(f"\nUpdating match percentage in database...")
+            update_success = update_match_percentage(application_id, match_percentage)
+            
+            if not update_success:
+                print("Failed to update match percentage in database")
+                return jsonify({
+                    "error": "Failed to update match percentage",
+                    "status": "error"
+                }), 500
+
+            print("Successfully updated match percentage")
+            return jsonify({
+                "success": True,
+                "message": "Resume matched successfully",
+                "result": result,
+                "match_percentage": match_percentage
+            })
+
+        except Exception as e:
+            print(f"Error processing match result: {str(e)}")
+            return jsonify({
+                "error": f"Error processing match result: {str(e)}",
+                "status": "error"
+            }), 500
 
     except Exception as e:
         print(f"Error in match_resume: {str(e)}")
+        print(f"Error type: {type(e)}")
+        return jsonify({
+            "error": str(e),
+            "status": "error"
+        }), 500
+
+@app.route('/api/update-match-percentage', methods=['POST'])
+def update_match_percentage_endpoint():
+    try:
+        data = request.json
+        application_id = data.get('applicationId')
+        match_percentage = data.get('matchPercentage')
+
+        print(f"\n=== Updating match percentage ===")
+        print(f"Application ID: {application_id}")
+        print(f"Match Percentage: {match_percentage}")
+
+        if not all([application_id, match_percentage]):
+            print("Missing required parameters")
+            return jsonify({
+                "error": "Missing required parameters",
+                "status": "error"
+            }), 400
+
+        # Update match percentage in database
+        print("Updating match percentage in database...")
+        update_success = update_match_percentage(application_id, float(match_percentage))
+        
+        if not update_success:
+            print("Failed to update match percentage in database")
+            return jsonify({
+                "error": "Failed to update match percentage",
+                "status": "error"
+            }), 500
+
+        print("Successfully updated match percentage")
+        return jsonify({
+            "success": True,
+            "message": "Match percentage updated successfully",
+            "match_percentage": match_percentage
+        })
+
+    except Exception as e:
+        print(f"Error updating match percentage: {str(e)}")
         print(f"Error type: {type(e)}")
         return jsonify({
             "error": str(e),

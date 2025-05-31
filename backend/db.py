@@ -17,22 +17,13 @@ def get_job_application_resume(application_id: str, max_retries=3, retry_delay=2
     Fetch resume URL from job applications table for a specific application
     with retry mechanism
     """
-    print(f"\n=== Starting resume fetch for application ID: {application_id} ===")
-    print(f"Using Supabase URL: {os.getenv('SUPABASE_URL')}")
-    
     for attempt in range(max_retries):
         try:
-            print(f"\nAttempt {attempt + 1}:")
-            print(f"Querying job_applications table for ID: {application_id}")
-            
             # First verify if the application exists
             check_response = supabase.table('job_applications').select('id').eq('id', application_id).execute()
-            print(f"Check response: {check_response.data}")
             
             if not check_response.data:
-                print(f"Application ID {application_id} not found in database")
                 if attempt < max_retries - 1:
-                    print(f"Waiting {retry_delay} seconds before next attempt...")
                     time.sleep(retry_delay)
                     continue
                 return None
@@ -40,45 +31,30 @@ def get_job_application_resume(application_id: str, max_retries=3, retry_delay=2
             # Get the full application details
             response = supabase.table('job_applications').select('id, resume_url, candidate_id, job_id').eq('id', application_id).execute()
             
-            # Log the raw response for debugging
-            print(f"Raw response type: {type(response)}")
-            print(f"Response data: {response.data}")
-            
             if not response.data:
-                print(f"Response data is empty")
                 if attempt < max_retries - 1:
-                    print(f"Waiting {retry_delay} seconds before next attempt...")
                     time.sleep(retry_delay)
                     continue
                 return None
                 
             if len(response.data) == 0:
-                print(f"No records found in response data")
                 if attempt < max_retries - 1:
-                    print(f"Waiting {retry_delay} seconds before next attempt...")
                     time.sleep(retry_delay)
                     continue
                 return None
                 
             application = response.data[0]
-            print(f"Found application data: {application}")
             
             if not application.get('resume_url'):
-                print(f"No resume_url field in application data")
                 if attempt < max_retries - 1:
-                    print(f"Waiting {retry_delay} seconds before next attempt...")
                     time.sleep(retry_delay)
                     continue
                 return None
                 
-            print(f"Successfully found resume URL: {application['resume_url']}")
             return application['resume_url']
             
-        except Exception as e:
-            print(f"Attempt {attempt + 1} failed with error: {str(e)}")
-            print(f"Error type: {type(e)}")
+        except Exception:
             if attempt < max_retries - 1:
-                print(f"Waiting {retry_delay} seconds before next attempt...")
                 time.sleep(retry_delay)
                 continue
             return None
@@ -89,45 +65,30 @@ def download_resume_from_storage(resume_url: str, temp_path: str):
     """
     try:
         if not resume_url:
-            print("No resume URL provided")
             return False
-            
-        print(f"\n=== Starting resume download ===")
-        print(f"Resume URL: {resume_url}")
-        print(f"Temp path: {temp_path}")
             
         # Extract bucket name and file path from URL
         # Assuming URL format: https://<project>.supabase.co/storage/v1/object/public/<bucket>/<path>
         parts = resume_url.split('/')
         if len(parts) < 2:
-            print(f"Invalid resume URL format: {resume_url}")
             return False
             
         bucket_name = parts[-2]
         file_path = parts[-1]
         
-        print(f"Extracted bucket: {bucket_name}")
-        print(f"Extracted file path: {file_path}")
-        
         # Download file from storage
-        print("Attempting to download from storage...")
         response = supabase.storage.from_(bucket_name).download(file_path)
         
         if not response:
-            print("No response from storage download")
             return False
             
         # Save to temp file
-        print(f"Saving to temp file: {temp_path}")
         with open(temp_path, 'wb') as f:
             f.write(response)
             
-        print(f"Successfully downloaded resume to: {temp_path}")
         return True
         
-    except Exception as e:
-        print(f"Error downloading resume: {str(e)}")
-        print(f"Error type: {type(e)}")
+    except Exception:
         return False
 
 def get_job_description(job_id: str, max_retries=3, retry_delay=2):
@@ -135,22 +96,13 @@ def get_job_description(job_id: str, max_retries=3, retry_delay=2):
     Fetch job description from jobs table for a specific job
     with retry mechanism
     """
-    print(f"\n=== Starting job description fetch for job ID: {job_id} ===")
-    print(f"Using Supabase URL: {os.getenv('SUPABASE_URL')}")
-    
     for attempt in range(max_retries):
         try:
-            print(f"\nAttempt {attempt + 1}:")
-            print(f"Querying jobs table for ID: {job_id}")
-            
             # First verify if the job exists
             check_response = supabase.table('jobs').select('id').eq('id', job_id).execute()
-            print(f"Check response: {check_response.data}")
             
             if not check_response.data:
-                print(f"Job ID {job_id} not found in database")
                 if attempt < max_retries - 1:
-                    print(f"Waiting {retry_delay} seconds before next attempt...")
                     time.sleep(retry_delay)
                     continue
                 return None
@@ -158,45 +110,94 @@ def get_job_description(job_id: str, max_retries=3, retry_delay=2):
             # Get the full job details
             response = supabase.table('jobs').select('description, requirements, company, position').eq('id', job_id).execute()
             
-            # Log the raw response for debugging
-            print(f"Raw response type: {type(response)}")
-            print(f"Response data: {response.data}")
-            
             if not response.data:
-                print(f"Response data is empty")
                 if attempt < max_retries - 1:
-                    print(f"Waiting {retry_delay} seconds before next attempt...")
                     time.sleep(retry_delay)
                     continue
                 return None
                 
             if len(response.data) == 0:
-                print(f"No records found in response data")
                 if attempt < max_retries - 1:
-                    print(f"Waiting {retry_delay} seconds before next attempt...")
                     time.sleep(retry_delay)
                     continue
                 return None
                 
             job_data = response.data[0]
-            print(f"Found job data: {job_data}")
             
             if not job_data.get('description'):
-                print(f"No description field in job data")
                 if attempt < max_retries - 1:
-                    print(f"Waiting {retry_delay} seconds before next attempt...")
                     time.sleep(retry_delay)
                     continue
                 return None
                 
-            print(f"Successfully found job description")
             return job_data
             
-        except Exception as e:
-            print(f"Attempt {attempt + 1} failed with error: {str(e)}")
-            print(f"Error type: {type(e)}")
+        except Exception:
             if attempt < max_retries - 1:
-                print(f"Waiting {retry_delay} seconds before next attempt...")
                 time.sleep(retry_delay)
                 continue
             return None
+
+def update_match_percentage(application_id: str, match_percentage: float) -> bool:
+    """
+    Update the match percentage for a job application
+    """
+    try:
+        print(f"\n=== Updating match percentage in database ===")
+        print(f"Application ID: {application_id}")
+        print(f"Match percentage: {match_percentage}")
+
+        print("Executing database update query...")
+        response = supabase.table('job_applications').update({
+            "match_percentage": match_percentage
+        }).eq('id', application_id).execute()
+
+        if not response.data:
+            print("No data returned from update operation")
+            # Verify if the update actually happened
+            verify_response = supabase.table('job_applications').select('match_percentage').eq('id', application_id).execute()
+            if verify_response.data and verify_response.data[0].get('match_percentage') == match_percentage:
+                print("Update verified - match percentage was updated successfully")
+                return True
+            print("Update verification failed - match percentage was not updated")
+            return False
+
+        print(f"Database update response: {response.data}")
+        print("Successfully updated match percentage in database")
+        return True
+
+    except Exception as e:
+        print(f"Error updating match percentage in database: {str(e)}")
+        print(f"Error type: {type(e)}")
+        return False
+
+def get_application_id_by_job_id(job_id: str) -> str:
+    """
+    Get the application ID for a given job ID
+    """
+    try:
+        job_id = str(job_id).strip()
+        
+        # First verify if the job exists
+        check_response = supabase.table('jobs').select('id').eq('id', job_id).execute()
+        
+        if not check_response.data:
+            return None
+            
+        # Get the application ID
+        response = supabase.table('job_applications').select('id, job_id, applied_at').eq('job_id', job_id).execute()
+        
+        if not response.data:
+            return None
+            
+        if len(response.data) == 0:
+            return None
+            
+        # Get the most recent application
+        applications = sorted(response.data, key=lambda x: x.get('applied_at', ''), reverse=True)
+        application_id = applications[0]['id']
+        
+        return application_id
+        
+    except Exception:
+        return None
