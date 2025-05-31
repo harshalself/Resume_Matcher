@@ -92,6 +92,7 @@ const HRDashboard = () => {
             job_id: app.job_id,
             status: app.status,
             match_percentage: app.match_percentage || 0,
+            //match_percentage: Math.floor(Math.random() * (100 - 80 + 1)) + 80,
             skills: app.skills || "",
             experience_years: app.experience_years || 0,
             applied_at: app.applied_at,

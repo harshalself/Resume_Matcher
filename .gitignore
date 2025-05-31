@@ -5,6 +5,8 @@ backend/job_description_enhanced.txt
 backend/.venv/
 backend/__pycache__/
 backend/.pytest_cache/
+*.venv/
+*.env
 
 # Frontend ignores
 # Logs
