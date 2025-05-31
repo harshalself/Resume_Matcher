@@ -129,3 +129,74 @@ def download_resume_from_storage(resume_url: str, temp_path: str):
         print(f"Error downloading resume: {str(e)}")
         print(f"Error type: {type(e)}")
         return False
+
+def get_job_description(job_id: str, max_retries=3, retry_delay=2):
+    """
+    Fetch job description from jobs table for a specific job
+    with retry mechanism
+    """
+    print(f"\n=== Starting job description fetch for job ID: {job_id} ===")
+    print(f"Using Supabase URL: {os.getenv('SUPABASE_URL')}")
+    
+    for attempt in range(max_retries):
+        try:
+            print(f"\nAttempt {attempt + 1}:")
+            print(f"Querying jobs table for ID: {job_id}")
+            
+            # First verify if the job exists
+            check_response = supabase.table('jobs').select('id').eq('id', job_id).execute()
+            print(f"Check response: {check_response.data}")
+            
+            if not check_response.data:
+                print(f"Job ID {job_id} not found in database")
+                if attempt < max_retries - 1:
+                    print(f"Waiting {retry_delay} seconds before next attempt...")
+                    time.sleep(retry_delay)
+                    continue
+                return None
+            
+            # Get the full job details
+            response = supabase.table('jobs').select('description, requirements, company, position').eq('id', job_id).execute()
+            
+            # Log the raw response for debugging
+            print(f"Raw response type: {type(response)}")
+            print(f"Response data: {response.data}")
+            
+            if not response.data:
+                print(f"Response data is empty")
+                if attempt < max_retries - 1:
+                    print(f"Waiting {retry_delay} seconds before next attempt...")
+                    time.sleep(retry_delay)
+                    continue
+                return None
+                
+            if len(response.data) == 0:
+                print(f"No records found in response data")
+                if attempt < max_retries - 1:
+                    print(f"Waiting {retry_delay} seconds before next attempt...")
+                    time.sleep(retry_delay)
+                    continue
+                return None
+                
+            job_data = response.data[0]
+            print(f"Found job data: {job_data}")
+            
+            if not job_data.get('description'):
+                print(f"No description field in job data")
+                if attempt < max_retries - 1:
+                    print(f"Waiting {retry_delay} seconds before next attempt...")
+                    time.sleep(retry_delay)
+                    continue
+                return None
+                
+            print(f"Successfully found job description")
+            return job_data
+            
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed with error: {str(e)}")
+            print(f"Error type: {type(e)}")
+            if attempt < max_retries - 1:
+                print(f"Waiting {retry_delay} seconds before next attempt...")
+                time.sleep(retry_delay)
+                continue
+            return None

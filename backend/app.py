@@ -3,16 +3,18 @@ from flask_cors import CORS
 import os
 import tempfile
 import requests
-from db import get_job_application_resume, download_resume_from_storage
+from db import get_job_application_resume, download_resume_from_storage, get_job_description
 import json
 import uuid
 
 app = Flask(__name__)
 CORS(app)
 
-# Create temp directory if it doesn't exist
+# Create temp directories if they don't exist
 TEMP_DIR = os.path.join(os.path.dirname(__file__), 'temp_resumes')
+TEMP_JD_DIR = os.path.join(os.path.dirname(__file__), 'temp_jd')
 os.makedirs(TEMP_DIR, exist_ok=True)
+os.makedirs(TEMP_JD_DIR, exist_ok=True)
 
 @app.route('/api/resume/download', methods=['POST'])
 def download_and_store_resume():
@@ -131,6 +133,74 @@ def download_resume(application_id):
         if 'temp_dir' in locals() and os.path.exists(temp_dir):
             print(f"Cleaning up temp directory: {temp_dir}")
             os.rmdir(temp_dir)
+
+@app.route('/api/job-description/download', methods=['POST'])
+def download_and_store_job_description():
+    try:
+        data = request.json
+        job_id = data.get('jobId')
+        company_name = data.get('companyName')
+        position = data.get('position')
+
+        if not all([job_id, company_name, position]):
+            return jsonify({
+                "error": "Missing required parameters",
+                "status": "error"
+            }), 400
+
+        # Get job description from database
+        print(f"\nFetching job description for job ID: {job_id}")
+        job_data = get_job_description(job_id)
+        
+        if not job_data:
+            print("No job description found in database")
+            return jsonify({
+                "error": "Job description not found",
+                "status": "error"
+            }), 404
+
+        print(f"\nFound job data: {job_data}")
+
+        # Sanitize company name and position for filename
+        sanitized_company = "".join(c for c in company_name if c.isalnum() or c in (' ', '-', '_')).strip()
+        sanitized_company = sanitized_company.replace(' ', '_')
+        sanitized_position = "".join(c for c in position if c.isalnum() or c in (' ', '-', '_')).strip()
+        sanitized_position = sanitized_position.replace(' ', '_')
+        
+        # Create unique filename
+        filename = f"{sanitized_company}_{sanitized_position}_{job_id}_{uuid.uuid4().hex[:8]}.txt"
+        temp_path = os.path.join(TEMP_JD_DIR, filename)
+
+        print(f"\nSaving job description to: {temp_path}")
+
+        # Save job description to file
+        with open(temp_path, 'w', encoding='utf-8') as f:
+            f.write(f"Company: {company_name}\n")
+            f.write(f"Position: {position}\n")
+            f.write(f"Job ID: {job_id}\n")
+            f.write("\nDescription:\n")
+            f.write(job_data.get('description', ''))
+            f.write("\n\nRequirements:\n")
+            f.write(job_data.get('requirements', 'N/A'))
+
+        storage_key = f"temp_jd_{job_id}_{sanitized_company}"
+        
+        print(f"\nSuccessfully saved job description")
+        
+        return jsonify({
+            "success": True,
+            "message": "Job description downloaded and stored successfully",
+            "storageKey": storage_key,
+            "filePath": temp_path
+        })
+
+    except Exception as e:
+        print(f"Error in download_and_store_job_description: {str(e)}")
+        print(f"Error type: {type(e)}")
+        return jsonify({
+            "error": str(e),
+            "status": "error"
+        }), 500
 
 if __name__ == '__main__':
     print("\n=== Starting Flask server ===")

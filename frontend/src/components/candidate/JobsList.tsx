@@ -101,6 +101,44 @@ const JobsList: React.FC = () => {
     }
   };
 
+  const downloadAndStoreJobDescription = async (
+    jobId: string,
+    companyName: string,
+    position: string
+  ) => {
+    try {
+      console.log("Downloading job description for:", position);
+
+      const response = await fetch(
+        "http://localhost:5000/api/job-description/download",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jobId,
+            companyName,
+            position,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to download job description: ${response.statusText}`
+        );
+      }
+
+      const result = await response.json();
+      console.log("Job description stored in backend temp folder:", result);
+      return result.storageKey;
+    } catch (error: any) {
+      console.error("Error downloading and storing job description:", error);
+      throw error;
+    }
+  };
+
   const handleApply = async (jobId: string) => {
     if (!user) {
       toast({
@@ -150,12 +188,32 @@ const JobsList: React.FC = () => {
         return;
       }
 
+      // Get job details for storing job description
+      const { data: jobData, error: jobError } = await supabase
+        .from("jobs")
+        .select("company, position")
+        .eq("id", jobId)
+        .single();
+
+      if (jobError) {
+        console.error("Error fetching job details:", jobError);
+        throw jobError;
+      }
+
       // Download and store resume in local storage
       console.log("Starting resume download and local storage...");
       await downloadAndStoreResumeLocally(
         profileData.resume_url,
         profileData.full_name || user.email || "Unknown",
         jobId
+      );
+
+      // Download and store job description
+      console.log("Starting job description download and storage...");
+      await downloadAndStoreJobDescription(
+        jobId,
+        jobData.company,
+        jobData.position
       );
 
       // Insert the job application with resume URL
@@ -183,7 +241,7 @@ const JobsList: React.FC = () => {
         toast({
           title: "Success",
           description:
-            "Application submitted successfully and resume stored locally",
+            "Application submitted successfully and documents stored locally",
           variant: "default",
         });
       }, 1000);
