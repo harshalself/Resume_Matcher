@@ -1,162 +1,131 @@
-from supabase import create_client, Client
+from supabase import create_client
 import os
 from dotenv import load_dotenv
-import logging
-from resume_matcher import extract_text_and_image_from_pdf, match_resume_to_job, choose_api
-import tempfile
-import requests
+import time
+import json
 
 load_dotenv()
 
-# Configure logging
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Create handlers
-file_handler = logging.FileHandler('resume_matcher.log')
-console_handler = logging.StreamHandler()
-
-# Create formatters and add it to handlers
-log_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(log_format)
-console_handler.setFormatter(log_format)
-
-# Add handlers to the logger
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
-
-# Initialize Supabase client with specific options
-supabase: Client = create_client(
-    supabase_url=os.getenv('SUPABASE_URL'),
-    supabase_key=os.getenv('SUPABASE_KEY')
+# Initialize Supabase client
+supabase = create_client(
+    os.getenv("SUPABASE_URL"),
+    os.getenv("SUPABASE_KEY")
 )
 
-def get_job_details(job_id):
-    """Fetch job details from the database"""
-    try:
-        response = supabase.table('jobs').select('*').eq('id', job_id).execute()
-        if response.data:
-            return response.data[0]
-        return None
-    except Exception as e:
-        logging.error(f"Error fetching job details: {str(e)}")
-        return None
-
-def get_candidate_profile(candidate_id):
-    """Fetch candidate profile from the database"""
-    try:
-        response = supabase.table('candidate_profiles').select('*').eq('user_id', candidate_id).execute()
-        if response.data:
-            return response.data[0]
-        return None
-    except Exception as e:
-        logging.error(f"Error fetching candidate profile: {str(e)}")
-        return None
-
-def update_match_percentage(application_id, match_percentage):
-    """Update the match percentage in job_applications table"""
-    try:
-        logger.info(f"Attempting to update match percentage for application {application_id} to {match_percentage}%")
-        response = supabase.table('job_applications').update({
-            'match_percentage': match_percentage
-        }).eq('id', application_id).execute()
-        
-        if response.data:
-            logger.info(f"Successfully updated match percentage to {match_percentage}% for application {application_id}")
-            return response.data
-        else:
-            logger.error(f"Failed to update match percentage for application {application_id}. No data returned from database.")
-            return None
-    except Exception as e:
-        logger.error(f"Error updating match percentage for application {application_id}: {str(e)}", exc_info=True)
-        return None
-
-def process_new_application(application_id):
-    """Process a new job application by matching resume and updating match percentage"""
-    try:
-        logging.info(f"Processing new application: {application_id}")
-        
-        # Get application details
-        response = supabase.table('job_applications').select('*').eq('id', application_id).execute()
-        if not response.data:
-            logging.error(f"Application not found: {application_id}")
-            return False
-        
-        application = response.data[0]
-        job_id = application['job_id']
-        resume_url = application['resume_url']
-        
-        # Get job details
-        job = get_job_details(job_id)
-        if not job:
-            logging.error(f"Job not found: {job_id}")
-            return False
-        
-        # Download resume from URL
-        if not resume_url:
-            logging.error(f"Resume URL not found for application: {application_id}")
-            return False
-            
-        # Create a temporary file to store the resume
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
-            # Download the resume
-            response = requests.get(resume_url)
-            if response.status_code != 200:
-                logging.error(f"Failed to download resume from URL: {resume_url}")
-                return False
-                
-            temp_file.write(response.content)
-            temp_file_path = temp_file.name
-        
-        try:
-            # Initialize API choice
-            choose_api()
-
-            # Extract text and images from PDF
-            resume_text, resume_images = extract_text_and_image_from_pdf(temp_file_path)
-            
-            # Match resume with job description
-            match_result = match_resume_to_job(
-                resume_text=resume_text,
-                job_desc=job['description'],
-                file_path=temp_file_path,
-                resume_images=resume_images
-            )
-            
-            # Extract match percentage
-            match_percentage = match_result.get('score', 0)
-            
-            # Update match percentage in database
-            update_result = update_match_percentage(application_id, match_percentage)
-            
-            if not update_result:
-                logging.error(f"Failed to update match percentage for application: {application_id}")
-                return False
-            
-            logging.info(f"Successfully processed application {application_id} with match percentage: {match_percentage}%")
-            return True
-            
-        finally:
-            # Clean up temporary file
-            if os.path.exists(temp_file_path):
-                os.unlink(temp_file_path)
+def get_job_application_resume(application_id: str, max_retries=3, retry_delay=2):
+    """
+    Fetch resume URL from job applications table for a specific application
+    with retry mechanism
+    """
+    print(f"\n=== Starting resume fetch for application ID: {application_id} ===")
+    print(f"Using Supabase URL: {os.getenv('SUPABASE_URL')}")
     
-    except Exception as e:
-        logging.error(f"Error processing application {application_id}: {str(e)}")
-        return False
-
-def listen_for_new_applications():
-    """Listen for new job applications and process them"""
-    try:
-        # Subscribe to changes in job_applications table
-        subscription = supabase.table('job_applications').on('INSERT').execute()
-        
-        for change in subscription:
-            if change.event_type == 'INSERT':
-                application_id = change.new['id']
-                logging.info(f"New application detected: {application_id}")
-                process_new_application(application_id)
+    for attempt in range(max_retries):
+        try:
+            print(f"\nAttempt {attempt + 1}:")
+            print(f"Querying job_applications table for ID: {application_id}")
+            
+            # First verify if the application exists
+            check_response = supabase.table('job_applications').select('id').eq('id', application_id).execute()
+            print(f"Check response: {check_response.data}")
+            
+            if not check_response.data:
+                print(f"Application ID {application_id} not found in database")
+                if attempt < max_retries - 1:
+                    print(f"Waiting {retry_delay} seconds before next attempt...")
+                    time.sleep(retry_delay)
+                    continue
+                return None
+            
+            # Get the full application details
+            response = supabase.table('job_applications').select('id, resume_url, candidate_id, job_id').eq('id', application_id).execute()
+            
+            # Log the raw response for debugging
+            print(f"Raw response type: {type(response)}")
+            print(f"Response data: {response.data}")
+            
+            if not response.data:
+                print(f"Response data is empty")
+                if attempt < max_retries - 1:
+                    print(f"Waiting {retry_delay} seconds before next attempt...")
+                    time.sleep(retry_delay)
+                    continue
+                return None
                 
+            if len(response.data) == 0:
+                print(f"No records found in response data")
+                if attempt < max_retries - 1:
+                    print(f"Waiting {retry_delay} seconds before next attempt...")
+                    time.sleep(retry_delay)
+                    continue
+                return None
+                
+            application = response.data[0]
+            print(f"Found application data: {application}")
+            
+            if not application.get('resume_url'):
+                print(f"No resume_url field in application data")
+                if attempt < max_retries - 1:
+                    print(f"Waiting {retry_delay} seconds before next attempt...")
+                    time.sleep(retry_delay)
+                    continue
+                return None
+                
+            print(f"Successfully found resume URL: {application['resume_url']}")
+            return application['resume_url']
+            
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed with error: {str(e)}")
+            print(f"Error type: {type(e)}")
+            if attempt < max_retries - 1:
+                print(f"Waiting {retry_delay} seconds before next attempt...")
+                time.sleep(retry_delay)
+                continue
+            return None
+
+def download_resume_from_storage(resume_url: str, temp_path: str):
+    """
+    Download resume from Supabase storage bucket
+    """
+    try:
+        if not resume_url:
+            print("No resume URL provided")
+            return False
+            
+        print(f"\n=== Starting resume download ===")
+        print(f"Resume URL: {resume_url}")
+        print(f"Temp path: {temp_path}")
+            
+        # Extract bucket name and file path from URL
+        # Assuming URL format: https://<project>.supabase.co/storage/v1/object/public/<bucket>/<path>
+        parts = resume_url.split('/')
+        if len(parts) < 2:
+            print(f"Invalid resume URL format: {resume_url}")
+            return False
+            
+        bucket_name = parts[-2]
+        file_path = parts[-1]
+        
+        print(f"Extracted bucket: {bucket_name}")
+        print(f"Extracted file path: {file_path}")
+        
+        # Download file from storage
+        print("Attempting to download from storage...")
+        response = supabase.storage.from_(bucket_name).download(file_path)
+        
+        if not response:
+            print("No response from storage download")
+            return False
+            
+        # Save to temp file
+        print(f"Saving to temp file: {temp_path}")
+        with open(temp_path, 'wb') as f:
+            f.write(response)
+            
+        print(f"Successfully downloaded resume to: {temp_path}")
+        return True
+        
     except Exception as e:
-        logging.error(f"Error in application listener: {str(e)}")
-        return False 
+        print(f"Error downloading resume: {str(e)}")
+        print(f"Error type: {type(e)}")
+        return False

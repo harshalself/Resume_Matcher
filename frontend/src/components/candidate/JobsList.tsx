@@ -3,7 +3,7 @@ import { MapPin, DollarSign, Clock, Building, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Job } from "@/types/hr";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth } from "@/hooks/useAuth";
 
 const JobsList: React.FC = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -64,6 +64,43 @@ const JobsList: React.FC = () => {
     }
   };
 
+  const downloadAndStoreResumeLocally = async (
+    resumeUrl: string,
+    candidateName: string,
+    jobId: string
+  ) => {
+    try {
+      console.log("Downloading resume from:", resumeUrl);
+
+      // Call backend endpoint to download and store resume
+      const response = await fetch(
+        "http://localhost:5000/api/resume/download",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            resumeUrl,
+            candidateName,
+            jobId,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to download resume: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log("Resume stored in backend temp folder:", result);
+      return result.storageKey;
+    } catch (error: any) {
+      console.error("Error downloading and storing resume:", error);
+      throw error;
+    }
+  };
+
   const handleApply = async (jobId: string) => {
     if (!user) {
       toast({
@@ -89,7 +126,7 @@ const JobsList: React.FC = () => {
       // First get the candidate's profile to get their resume URL
       const { data: profileData, error: profileError } = await supabase
         .from("candidate_profiles")
-        .select("resume_url, skills, experience_years")
+        .select("resume_url, skills, experience_years, full_name")
         .eq("user_id", user.id)
         .single();
 
@@ -112,6 +149,14 @@ const JobsList: React.FC = () => {
         });
         return;
       }
+
+      // Download and store resume in local storage
+      console.log("Starting resume download and local storage...");
+      await downloadAndStoreResumeLocally(
+        profileData.resume_url,
+        profileData.full_name || user.email || "Unknown",
+        jobId
+      );
 
       // Insert the job application with resume URL
       const { error } = await supabase.from("job_applications").insert({
@@ -137,7 +182,8 @@ const JobsList: React.FC = () => {
 
         toast({
           title: "Success",
-          description: "Application submitted successfully",
+          description:
+            "Application submitted successfully and resume stored locally",
           variant: "default",
         });
       }, 1000);
