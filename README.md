@@ -1,5 +1,7 @@
 # Resume Matcher Project
 
+![Screenshot](Screenshot.png)
+
 This project is a resume matching system that uses AI to match candidate resumes with job descriptions and calculate match percentages.
 
 ## Prerequisites
